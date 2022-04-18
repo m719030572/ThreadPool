@@ -1,0 +1,2 @@
+add_library(threadpool threadpool.cpp)
+target_link_libraries(threadpool pthread)

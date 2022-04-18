@@ -1,0 +1,5 @@
+include_directories(.)
+add_subdirectory(main)
+add_subdirectory(queue)
+#add_subdirectory(task)
+add_subdirectory(threadpool)
