@@ -22,8 +22,9 @@ public:
     template<typename Func, typename...Args, typename ReturnType = std::invoke_result_t<Func, Args...>, typename = std::enable_if_t<!std::is_void_v<std::invoke_result_t<Func, Args...>>>>
     std::future<ReturnType> Submit(const Func& func, const Args&&...);
     // 构造函数，传入初始线程池中县城的数量，缺省值为机器的实际最大并发数。
-    explicit ThreadPool(int thread_count = std::thread::hardware_concurrency()) : thread_count_(thread_count) {
-        for (int i = 0; i < thread_count_; ++i) {
+    explicit ThreadPool(int thread_count = std::thread::hardware_concurrency()) : thread_count_(thread_count), working_thread_(thread_count_) {
+        thread_list_.push_back(std::make_shared<std::thread>(&ThreadPool::Dispatcher, this));
+        for (int i = 0; i < thread_count_ - 1; ++i) {
             thread_list_.push_back(std::make_shared<std::thread>(&ThreadPool::Worker, this));
         }
     }
@@ -39,17 +40,8 @@ public:
         }
     }
 private:
-    void Worker() {
-        std::thread::id id = std::this_thread::get_id();
-        LOG(INFO) << " Worker " << id << " created.";
-        while (running) {
-            auto func_ptr = task_queue_.WaitPop();
-            LOG(INFO) << " Worker " << id << " Working.";
-            (*func_ptr)();
-            LOG(INFO) << " Worker " << id << " Working done.";
-        }
-        LOG(INFO) << " Worker " << id << " exit.";
-    }
+    void Worker();
+    void Dispatcher();
     template<typename Func, typename... Args, typename RetType>
     void PushTask(const Func& func, const Args&&... args, std::promise<RetType> promise) {
 
@@ -58,8 +50,12 @@ private:
     void PushTask(const Task& task);
     unsigned int thread_count_;
     std::atomic_bool running = true;
+    std::atomic_bool pause = false;
     std::vector<std::shared_ptr<std::thread>> thread_list_;
     queue::ThreadSafeQueue<std::function<void(void)>> task_queue_;
+    unsigned int working_thread_;
+    std::condition_variable worker_cond_;
+    std::mutex worker_mutex_;
 };
 
 template<typename Func, typename...Args, typename>

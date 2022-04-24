@@ -22,6 +22,7 @@ public:
     std::shared_ptr<T> TryPop();
     // 若队列为空，则返回True。
     bool Empty();
+    uint64_t Size();
 private:
     ThreadSafeQueue(const ThreadSafeQueue&) = delete;
     ThreadSafeQueue operator=(const ThreadSafeQueue) = delete;
@@ -36,10 +37,12 @@ private:
     std::unique_ptr<Node> head;
     Node* tail;
     std::condition_variable data_cond;
+    uint64_t upper_size;
+    uint64_t lower_size;
 };
 
 template<typename T>
-ThreadSafeQueue<T>::ThreadSafeQueue() : head(new Node()), tail(head.get()) {
+ThreadSafeQueue<T>::ThreadSafeQueue() : head(new Node()), tail(head.get()), upper_size(0), lower_size(0) {
 }
 template<typename T>
 std::unique_lock<std::mutex> ThreadSafeQueue<T>::WaitForData() {
@@ -54,6 +57,7 @@ typename ThreadSafeQueue<T>::Node* ThreadSafeQueue<T>::GetTail() {
 }
 template<typename T>
 std::unique_ptr<typename ThreadSafeQueue<T>::Node> ThreadSafeQueue<T>::PopHead() {
+    ++lower_size;
     std::unique_ptr<Node> old_head = std::move(head);
     head = std::move(old_head->next);
     return old_head;
@@ -75,6 +79,7 @@ template<typename T>
 void ThreadSafeQueue<T>::PushBack(std::unique_ptr<T>&& node_ptr) {
     std::unique_ptr<Node> new_node(new Node());
     std::unique_lock<std::mutex> tail_lock(tail_mutex);
+    ++upper_size;
     tail->data = std::move(node_ptr);
     tail->next = std::move(new_node);
     tail = tail->next.get();
@@ -100,7 +105,19 @@ std::shared_ptr<T> ThreadSafeQueue<T>::WaitPop() {
 template<typename T>
 std::shared_ptr<T> ThreadSafeQueue<T>::TryPop() {
     std::unique_ptr<Node> node = TryPopHead();
-    return node == nullptr ? std::shared_ptr<Node>() : node->data;
+    return node == nullptr ? std::shared_ptr<T>() : node->data;
+}
+template<typename T>
+uint64_t ThreadSafeQueue<T>::Size() {
+    head_mutex.lock();
+    uint64_t size = lower_size;
+    lower_size = 0;
+    head_mutex.unlock();
+    tail_mutex.lock();
+    upper_size -= size;
+    size = upper_size;
+    tail_mutex.unlock();
+    return size;
 }
 }
 #endif
